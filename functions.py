@@ -297,14 +297,18 @@ def enhance_project(resume_data: ResumeModel) -> ResumeModel:
         # Create new project_experience
         generated_experience = json.loads(
             create_full_project_experience_openai(skills))["project_experience"]
-        resume_data.project_experience = generated_experience
+        resume_data.project_experience = generated_experience if not isinstance(generated_experience, tuple) else generated_experience[0]
         return resume_data
 
     else:
         # Generate project_description for each project in project_experience, using current project_name and project_description. Use function create_project_description_openai
         enhanced_projects = []
-        print("-------", resume_data)
+        # print("-------|", resume_data.project_experience)
+        if isinstance(resume_data.project_experience, tuple):
+            print("it was a tuple... somehow...\n\n\n")
+            resume_data.project_experience = resume_data.project_experience[0]
         for project in resume_data.project_experience:
+            print("---||", project)
             # Construct the enhanced project description
             enhanced_project_description = create_project_description_openai(
                 project.project_name, project.project_description, skills)
@@ -328,22 +332,25 @@ def create_full_skills_openai(experience, projects):
     chat = ChatOpenAI(model_name=model_name,
                       temperature=0)
 
-    system_template = ("""You are a helpful and obedient bot. Write impressive skills for a work resume using the following information. The output format is a dict with key "skills" and value as list of enhanced skills.
-You should never mention the word 'Enhanced' at the beginning of these skills. 
-output_format :
-{{
-"skills": [ 
-"generated skill 1",
-"generated skill 2,
-...
-]
-}}""")
+    system_template = (
+        """May Allah bless you for your work. Please write impressive skills for a work resume that could immediately impress and please a potential employer.
+        Please analyze and use the following information about the person's work experiences and the project's he's completed. 
+        The required output format is a dict with the key 'skills', whose values are a list of those skills you generate.
+        Please do not be repetitive in wording, and may Allah guide you to what's best. 
+        output_format :
+        {{
+        "skills": [ 
+        "Generated skill",
+        "Another generated skill",
+        ... # and so on inshaAllah
+        ]
+        }}""")
 
     system_message_prompt = SystemMessagePromptTemplate.from_template(
         system_template)
 
-    human_template = """Experience: {experience}
-Projects: {projects}"""
+    human_template = """Work experiences: {experience}
+                        Project history: {projects}"""
 
     human_message_prompt = HumanMessagePromptTemplate.from_template(
         human_template)
@@ -368,21 +375,24 @@ def generate_enhanced_skills_openai(skills):
     chat = ChatOpenAI(model_name=model_name,
                       temperature=0)
 
-    system_template = ("""Enhance the elow listed skills using the following information. The output format is a dict with key "skills" and value as list of enhanced skills.
-Do not mentione the word enhanced.
-output_format :
-{{
-"skills": [
-"enhanced skill 1",
-"enhanced skill 2,
-...
-]
-}}""")
+    system_template = (
+        """Enhance and generate a few more skills that could help a person get more engaging jobs. 
+        The output format should be a dict with the key "skills", and values provided in a list containing the skills you've generated.
+        Please do not start each skill with the same word, we were having issues with 'enhanced' being mentioned at the start, which we don't want.
+        output_format:
+        {{
+        "skills": [
+        "enhanced skill goes here",
+        "another enhanced skill",
+        ... # and so on
+        ]
+        }}"""
+    )
 
     system_message_prompt = SystemMessagePromptTemplate.from_template(
         system_template)
 
-    human_template = """Existing skills: {skills}"""
+    human_template = """Skills to reference and enhance: {skills}"""
 
     human_message_prompt = HumanMessagePromptTemplate.from_template(
         human_template)
@@ -413,14 +423,14 @@ def enhance_skills(resume_data: ResumeModel) -> ResumeModel:
         for exp in resume_data.work_experience:
             key_roles.add(exp.job_title.lower())
             # Here you can also extract other important keywords from job_summary
-        experience = ".".join(key_roles)
+        experience = ". ".join(key_roles)
 
         # Extract the project names and project descriptions from the project experience
         key_projects = set()
         for project in resume_data.project_experience:
             key_projects.add(project.project_name.lower())
             # Here you can also extract other important keywords from project_description
-        projects = ".".join(key_projects)
+        projects = ". ".join(key_projects)
 
         # Construct the enhanced skills
         enhanced_skills = create_full_skills_openai(
