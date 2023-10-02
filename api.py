@@ -83,40 +83,43 @@ json_file_name = utils.utils_file.convert_filepath_to_json(uploaded_file)
 # save ans as json locally
 with open(json_file_name, "w") as f:
     json.dump(resume_dict, f)
-print("\n\n\n[1] Running whenever?\n\n\n")
+# print("\n\n\n[1] Running whenever?\n\n\n")
 # return "done!"
 
 
-@app.get('/enhance-objective/')
-def _enhance_objective():
-    try:
-        enhance_objective(resume_model)
-        return {'status': 'success',
-                'response': resume_model.model_dump()['objective']}
-    except Exception as e:
-        return {'status': 'error',
-                'response': e}
-
-@app.get('/enhance-experience/')
-def _enhance_experience():
-    try:
-        enhance_experience(resume_model)
-        work_experiences = resume_model.model_dump()['work_experience']
-        f_work_experiences = [{
-            'company': exp["company"],
-            'jobTitle': exp["job_title"],
-            'date': exp["duration"],
-            'descriptions': exp["job_summary"].split('\n'),
-        } for exp in work_experiences]
-        return {'status': 'success',
-                'response': f_work_experiences}
-    except Exception as e:
-        return {'status': 'error',
-                'response': e.args}
-
-@app.get('/enhance-projects/')
-def _enhance_project():
+@app.post('/enhance-objective/')
+def _enhance_objective(resume: Resume):
     # try:
+    resume_model = parse_resume(resume)
+    enhance_objective(resume_model)
+    return {'status': 'success',
+            'response': resume_model.model_dump()['objective']}
+    # except Exception as e:
+    #     return {'status': 'error',
+    #             'response': e}
+
+@app.post('/enhance-experience/')
+def _enhance_experience(resume: Resume):
+    # try:
+    resume_model = parse_resume(resume)
+    enhance_experience(resume_model)
+    work_experiences = resume_model.model_dump()['work_experience']
+    f_work_experiences = [{
+        'company': exp["company"],
+        'jobTitle': exp["job_title"],
+        'date': exp["duration"],
+        'descriptions': exp["job_summary"].split('\n'),
+    } for exp in work_experiences]
+    return {'status': 'success',
+            'response': f_work_experiences}
+    # except Exception as e:
+    #     return {'status': 'error',
+    #             'response': e.args}
+
+@app.post('/enhance-projects/')
+def _enhance_project(resume: Resume):
+    # try:
+    resume_model = parse_resume(resume)
     enhance_project(resume_model)
     projects = resume_model.model_dump()['project_experience']
     print(projects)
@@ -132,15 +135,60 @@ def _enhance_project():
     #     return {'status': 'error',
     #             'response': str(e) + f" - {reach}"}
 
-@app.get('/enhance-skills/')
-def _enhance_skill():
-    try:
-        enhance_skills(resume_model)
-        return {'status': 'success',
-                'response': resume_model.model_dump()['skills']}
-    except Exception as e:
-        return {'status': 'error',
-                'response': e}
+@app.post('/enhance-skills')
+def _enhance_skills(resume: Resume):
+    resume_model = parse_resume(resume)
+    # try:
+    enhance_skills(resume_model)
+    return {'status': 'success',
+            'response': resume_model.model_dump()['skills']}
+    # except Exception as e:
+    #     return {'status': 'error',
+    #             'response': e}
+
+def parse_resume(resume: Resume):
+    resume_dict = resume.model_dump()
+    if not resume_dict['profile']['name']:
+        resume_dict['profile']['name'] = '-'
+    print(resume_dict)
+
+    resume_model = ResumeModel(
+        basic_info = BasicInfoModel(
+            first_name = resume_dict['profile']['name'].split()[0],
+            last_name = resume_dict['profile']['name'].split()[-1],
+            full_name = resume_dict['profile']['name'],
+            email = resume_dict['profile']['email'],
+            phone_number = resume_dict['profile']['phone'],
+            location = resume_dict['profile']['location'],
+            portfolio_website_url = resume_dict['profile']['url'],
+            linkedin_url = "",
+            github_main_page_url = ""
+        ),
+        objective = resume_dict['profile']['summary'],
+        work_experience = [WorkExperienceModel(
+                job_title = work_experience['jobTitle'],
+                company = work_experience['company'],
+                location = "",
+                duration = work_experience['date'],
+                job_summary = '. '.join(work_experience['descriptions']),
+            ) for work_experience in resume_dict['workExperiences']],
+        education = [EducationModel(
+                university = education['school'],
+                education_level = education['degree'],
+                graduation_year = "",
+                graduation_month = education['date'],
+                majors = '. '.join(education['descriptions']),
+                GPA = education['gpa'],
+            ) for education in resume_dict['educations']],
+        project_experience = [ProjectExperienceModel(
+                project_name = project['project'],
+                project_description = '. '.join(project['descriptions'])
+            ) for project in resume_dict['projects']],
+        skills = resume_dict['skills']['descriptions']
+    )
+    return resume_model
+
+
 
 @app.post('/update/')
 def _update_resume(resume: Resume):
