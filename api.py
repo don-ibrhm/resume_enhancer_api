@@ -1,29 +1,18 @@
-### --- --- --- IMPORTS & SETUP
-
 import utils.utils_file
 import utils.extract_resume
 from utils.dataclass import ResumeText, ResumeModel, BasicInfoModel, WorkExperienceModel, EducationModel, ProjectExperienceModel
 from utils.mirror_class import Resume
-from langchain.chat_models import ChatOpenAI
 import json
-from langchain.prompts.chat import (
-    ChatPromptTemplate,
-    HumanMessagePromptTemplate,
-    SystemMessagePromptTemplate,
-)
 import tiktoken
 import openai 
 from dotenv import load_dotenv
 import os
 import logging
 import shutil
-
 import json
-from typing import List
 
 from fastapi import FastAPI, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ValidationError
 
 from functions import *
 
@@ -37,10 +26,13 @@ if not os.path.exists("backup_folder"):
     os.makedirs("backup_folder")
 
 app = FastAPI()
+
+# allowed domains (currently: all '*')
 origins = [
     "*",
 ]
 
+# allow access with cors
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -56,53 +48,22 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-# @app.get('/set_example/')
-# def _set_example():
-## MAIN
-uploaded_file = "sample_resume/Acting Manager_Learning.pdf"
-
-if uploaded_file.endswith(".pdf"):
-    text = utils.utils_file.parse_pdf(uploaded_file)
-elif uploaded_file.endswith(".docx"):
-    text = utils.utils_file.parse_docx(uploaded_file)
-
-# the is the raw text after parsing 
-text = utils.utils_file.process_clean_text(text)
-
-# USe openai to extract the data
-ans = utils.extract_resume.extract_data_new(text)
-
-# If any field of ans is empty, replace it with "" according to the ResumeModel
-resume_model = ResumeModel(**ans)
-
-# Convert the resume_model to a dictionary
-resume_dict = resume_model.model_dump()
-
-# This will save the very first json file in the backup_folder
-json_file_name = utils.utils_file.convert_filepath_to_json(uploaded_file)
-# save ans as json locally
-with open(json_file_name, "w") as f:
-    json.dump(resume_dict, f)
-# print("\n\n\n[1] Running whenever?\n\n\n")
-# return "done!"
-
-
+# API Methods:
+## All enhance methods take the latest version of the resume from the front end, and enhance the requested portion
 @app.post('/enhance-objective/')
 def _enhance_objective(resume: Resume):
-    # try:
+    # Get localised resume model, then enhance
     resume_model = parse_resume(resume)
     enhance_objective(resume_model)
     return {'status': 'success',
             'response': resume_model.model_dump()['objective']}
-    # except Exception as e:
-    #     return {'status': 'error',
-    #             'response': e}
 
 @app.post('/enhance-experience/')
 def _enhance_experience(resume: Resume):
-    # try:
+    # Get localised resume model, then enhance
     resume_model = parse_resume(resume)
     enhance_experience(resume_model)
+    # Revert to OpenResume's resume model for work experiences
     work_experiences = resume_model.model_dump()['work_experience']
     f_work_experiences = [{
         'company': exp["company"],
@@ -112,18 +73,14 @@ def _enhance_experience(resume: Resume):
     } for exp in work_experiences]
     return {'status': 'success',
             'response': f_work_experiences}
-    # except Exception as e:
-    #     return {'status': 'error',
-    #             'response': e.args}
 
 @app.post('/enhance-projects/')
 def _enhance_project(resume: Resume):
-    # try:
+    # Get localised resume model, then enhance
     resume_model = parse_resume(resume)
     enhance_project(resume_model)
+    # Revert to OpenResume's resume model for projects
     projects = resume_model.model_dump()['project_experience']
-    print(projects)
-    # return {'response': projects}
     f_projects = [{
         'project': proj["project_name"],
         'date': "Add Date",
@@ -131,30 +88,37 @@ def _enhance_project(resume: Resume):
     } for proj in projects]
     return {'status': 'success',
             'response': f_projects}
-    # except Exception as e:
-    #     return {'status': 'error',
-    #             'response': str(e) + f" - {reach}"}
 
 @app.post('/enhance-skills')
 def _enhance_skills(resume: Resume):
+    # Get localised resume model, then enhance
     resume_model = parse_resume(resume)
-    # try:
     enhance_skills(resume_model)
-    return {'status': 'success',
-            'response': resume_model.model_dump()['skills']}
-    # except Exception as e:
-    #     return {'status': 'error',
-    #             'response': e}
-
+    # Try to clear the enhanced skills to remove repeated starting word ('enhanced'), and format, else return as is
+    enhanced_skills = resume_model.model_dump()['skills']
+    try:
+        if len({skill.split()[0] for skill in skills}) == 1:
+            skills = [' '.join(skill.split()[1:]) for skill in enhanced_skills]
+            skills = [skill + '.'  if not skill.endswith('.') else skill for skill in skills]
+            skills = [skill[0].upper() + skill[1:] for skill in skills]
+        return {'status': 'success',
+                'response': skills}
+    except Exception as e:
+        return {'status': 'success',
+                'response': resume_model.model_dump()['skills']}
+    
+# Function to get localised resume model from OpenResume's resume model
 def parse_resume(resume: Resume):
     resume_dict = resume.model_dump()
+    # As ['profile']['name'] will be split, give it a value in case it's empty, to avoid errors when .split() and indexed
     if not resume_dict['profile']['name']:
         resume_dict['profile']['name'] = '-'
     print(resume_dict)
 
+    # Populate each of the attributes of the localized resume model (and thier attributes) with the equivalent or approximate from OpenResume's resume model
     resume_model = ResumeModel(
         basic_info = BasicInfoModel(
-            first_name = resume_dict['profile']['name'].split()[0],
+            first_name = ' '.join(resume_dict['profile']['name'].split()[:-1]),
             last_name = resume_dict['profile']['name'].split()[-1],
             full_name = resume_dict['profile']['name'],
             email = resume_dict['profile']['email'],
@@ -189,7 +153,7 @@ def parse_resume(resume: Resume):
     return resume_model
 
 
-
+# Currently Defunct
 @app.post('/update/')
 def _update_resume(resume: Resume):
     try:
@@ -232,38 +196,38 @@ def _update_resume(resume: Resume):
     except Exception as e:
         return {e}
 
+# Takes raw text extracted from the docx/pdf in the front end, and parses with AI, then returns resume in OpenResume's format
+# Used for the initial parsing
 @app.post("/upload-text/")
 def _upload_text_only(resume_text: ResumeText):
-    # try:
-        text = utils.utils_file.process_clean_text(resume_text.text)
+    text = utils.utils_file.process_clean_text(resume_text.text)
 
-        # USe openai to extract the data
-        ans = utils.extract_resume.extract_data_new(text)
-        print("\n\n-------\n\n", ans)
-        # print("\n\n-------\n\n", ans['education'])
-        if not isinstance(ans['work_experience'], list):
-            print("Issue with how work_experience is stored")
-            ans['work_experience'] = [ans['work_experience']]
-        if not isinstance(ans['education'], list):
-            print("Issue with how education is stored")
-            ans['education'] = [ans['education']]
-        if not isinstance(ans['project_experience'], list):
-            print("Issue with how project_experience is stored")
-            ans['project_experience'] = [ans['project_experience']]
-        if not isinstance(ans['skills'], list):
-            print("Issue with how skills is stored")
-            ans['skills'] = [ans['skills']]
-        # If any field of ans is empty, replace it with "" according to the ResumeModel
-        new_resume_model = ResumeModel(**ans)
-        for key in resume_model.model_dump().keys():
-            setattr(resume_model, key, getattr(new_resume_model, key))
-        print("\n\n------- uploading resume model\n\n", resume_model.model_dump())
-        return "Upload complete"
-    # except Exception as e:
-    #     print("--------\n\n\nError:", str(e))
-    #     return "Error: " + str(e)
+    # Use OpenAI to extract the data
+    ans = utils.extract_resume.extract_data_new(text)
 
+    # catching mistypes attributes and casting them to the correct type
+    if not isinstance(ans['work_experience'], list):
+        print("Issue with how work_experience is stored")
+        ans['work_experience'] = [ans['work_experience']]
+    if not isinstance(ans['education'], list):
+        print("Issue with how education is stored")
+        ans['education'] = [ans['education']]
+    if not isinstance(ans['project_experience'], list):
+        print("Issue with how project_experience is stored")
+        ans['project_experience'] = [ans['project_experience']]
+    if not isinstance(ans['skills'], list):
+        print("Issue with how skills is stored")
+        ans['skills'] = [ans['skills']]
+    #NOTE: Is this a #TODO? Lol,: If any field of ans is empty, replace it with "" according to the ResumeModel; may Allah laugh with me
+    # Turn it into a localized resume model
+    new_resume_model = ResumeModel(**ans)
+    # Updating resume_model on disk (not necessary for basic front end functionlity, but maybe for testing inshaAllah
+    # for key in resume_model.model_dump().keys():
+    #     setattr(resume_model, key, getattr(new_resume_model, key))
+    # Revert it to OpenResume's resume model and return
+    return get_resume(new_resume_model)
 
+# Currently unused, thank God, transferring files between front and back end isn't the simplest imo..
 @app.post("/upload-file/")
 def _upload_pdf_or_docx(file: UploadFile):
     global resume_model
@@ -295,8 +259,13 @@ def _upload_pdf_or_docx(file: UploadFile):
     
     
 @app.get("/get-resume/")
-def _get_resume():
-    print("\n\n------- getting resume model\n\n", resume_model.model_dump())
+def pass_resume():
+    return get_resume(resume_model)
+
+# Localalized resume model -> OpenResume resume model
+def get_resume(resume_model):
+    # print("\n\n------- getting resume model\n\n", resume_model.model_dump())
+    # Populate OpenResume's resume model with its equivalent or approximate from the localized resume model
     open_resume_model = {
         "profile": {
             "name": resume_model.basic_info.full_name,
@@ -331,7 +300,16 @@ def _get_resume():
             } for project in resume_model.project_experience
         ],
         "skills": {
+            "featuredSkills": [
+                {
+                    'skill': "",
+                    'rating': 0,
+                },
+            ],
             "descriptions": resume_model.skills
+        },
+        "custom": {
+            "descriptions": [""]
         }
     }
     return open_resume_model
