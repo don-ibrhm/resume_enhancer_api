@@ -196,6 +196,112 @@ def _update_resume(resume: Resume):
     except Exception as e:
         return {e}
 
+# OpenAI may not completely respond as desired, 
+# Solutions so far being:   casting as the correct types, 
+#                           or extracting the useful information 
+#                           or leaving blank
+def correct_response(res: dict):
+    if not isinstance(res['basic_info'], dict):
+        print("-- Issue: with how basic_info was formed by ai function")
+        print("Before:", res['basic_info'])
+        res['basic_info'] = {
+            'first_name': "",
+            'last_name': "",
+            'full_name': "",
+            'email': "",
+            'phone_number': "",
+            'location': "",
+            'portfolio_website_url': "",
+            'linkedin_url': "",
+            'github_main_page_url': "",
+        }
+        print("Now:", res['basic_info'])
+    if not isinstance(res['objective'], str):
+        print("-- Issue: with how objective was formed by ai function")
+        print("Before:", res['objective'])
+        if isinstance(res['objective'], dict) and res['objective'].keys():
+            res['objective'] = res['objective'][list(res['objective'].keys())[0]]
+        else:
+            res['objective'] = str(res['objective'])
+        print("Now:", res['objective'])
+    if not isinstance(res['work_experience'], list):
+        print("-- Issue: with how work_experience was formed by ai function")
+        print("Before:", res['work_experience'])
+        res['work_experience'] = [{
+            'job_title': "",
+            'company': "",
+            'location': "",
+            'duration': "",
+            'job_summary': "",
+        }]
+        print("Now:", res['work_experience'])
+    else:
+        for i, work in enumerate(res['work_experience']):
+            if not isinstance(work, dict):
+                print("--- Issue:", res['work_experience'][i])
+                res['work_experience'][i] = {
+                    'job_title': "",
+                    'company': "",
+                    'location': "",
+                    'duration': "",
+                    'job_summary': "",
+                }
+    if not isinstance(res['education'], list):
+        print("-- Issue: with how education was formed by ai function")
+        print("Before:", res['education'])
+        res['education'] = [{
+            'university': "",
+            'education_level': "",
+            'graduation_year': "",
+            'graduation_month': "",
+            'majors': "",
+            'GPA': "",
+        }]
+        print("Now:", res['education'])
+    else:
+        for i, edu in enumerate(res['education']):
+            if not isinstance(edu, dict):
+                print("--- Issue:", res['education'][i])
+                res['education'][i] = {
+                    'university': "",
+                    'education_level': "",
+                    'graduation_year': "",
+                    'graduation_month': "",
+                    'majors': "",
+                    'GPA': "",
+                }
+    if not isinstance(res['project_experience'], list):
+        print("-- Issue: with how project_experience was formed by ai function")
+        print("Before:", res['project_experience'])
+        res['project_experience'] = [{
+            'project_name': "",
+            'project_description': "",
+        }]
+        print("Now:", res['project_experience'])
+    else:
+        for i, project in enumerate(res['project_experience']):
+            if not isinstance(project, dict):
+                print("--- Issue:", res['project_experience'][i])
+                res['project_experience'][i] = {
+                    'project_name': "",
+                    'project_description': "",
+                }
+    if not isinstance(res['skills'], list):
+        print("-- Issue: with how skills was formed by ai function")
+        print("Before:", res['skills'])
+        if isinstance(res['skills'], dict):
+            skills = []
+            for key in res['skills']:
+                if isinstance(res['skills'][key], list):
+                    skills.extend(res['skills'][key])
+                else:
+                    skills.append(str(res['skills'][key]))
+            res['skills'] = skills
+        else:
+            res['skills'] = [""]
+        print("Now:", res['skills'])
+
+
 # Takes raw text extracted from the docx/pdf in the front end, and parses with AI, then returns resume in OpenResume's format
 # Used for the initial parsing
 @app.post("/upload-text/")
@@ -203,29 +309,35 @@ def _upload_text_only(resume_text: ResumeText):
     text = utils.utils_file.process_clean_text(resume_text.text)
 
     # Use OpenAI to extract the data
-    ans = utils.extract_resume.extract_data_new(text)
+    response = utils.extract_resume.extract_data_new(text)
+    print(response)
+    correct_response(response)
 
     # catching mistypes attributes and casting them to the correct type
-    if not isinstance(ans['work_experience'], list):
-        print("Issue with how work_experience is stored")
-        ans['work_experience'] = [ans['work_experience']]
-    if not isinstance(ans['education'], list):
-        print("Issue with how education is stored")
-        ans['education'] = [ans['education']]
-    if not isinstance(ans['project_experience'], list):
-        print("Issue with how project_experience is stored")
-        ans['project_experience'] = [ans['project_experience']]
-    if not isinstance(ans['skills'], list):
-        print("Issue with how skills is stored")
-        ans['skills'] = [ans['skills']]
+    # if not isinstance(ans['work_experience'], list):
+    #     print("-- Issue: with how work_experience was formed by ai function")
+    #     ans['work_experience'] = [ans['work_experience']]
+    # if not isinstance(ans['education'], list):
+    #     print("-- Issue: with how education was formed by ai function")
+    #     ans['education'] = [ans['education']]
+    # if not isinstance(ans['project_experience'], list):
+    #     print("-- Issue: with how project_experience was formed by ai function")
+    #     ans['project_experience'] = [ans['project_experience']]
+    # if not isinstance(ans['skills'], list):
+    #     print("-- Issue: with how skills was formed by ai function")
+    #     ans['skills'] = [ans['skills']]
     #NOTE: Is this a #TODO? Lol,: If any field of ans is empty, replace it with "" according to the ResumeModel; may Allah laugh with me
     # Turn it into a localized resume model
-    new_resume_model = ResumeModel(**ans)
+    if not response:
+        print("Failed to get a valid response with 3 attempts")
+        return None
+    resume_model = ResumeModel(**response)
+    print(resume_model)
     # Updating resume_model on disk (not necessary for basic front end functionlity, but maybe for testing inshaAllah
     # for key in resume_model.model_dump().keys():
     #     setattr(resume_model, key, getattr(new_resume_model, key))
     # Revert it to OpenResume's resume model and return
-    return get_resume(new_resume_model)
+    return get_resume(resume_model)
 
 # Currently unused, thank God, transferring files between front and back end isn't the simplest imo..
 @app.post("/upload-file/")
@@ -317,3 +429,7 @@ def get_resume(resume_model):
 @app.get('/get-internal-resume/')
 def _get_resume():
     return resume_model.model_dump()
+
+@app.get("/")
+def _ping():
+    return "XD"

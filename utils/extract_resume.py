@@ -34,6 +34,22 @@ def num_tokens_from_string(_string, encoding):
     num_tokens = len(encoding.encode(_string))
     return num_tokens
 
+def try_loading(parsed_text, chat, chat_prompt, attempts=3):
+    if attempts == 0: return None
+    response = chat(
+        chat_prompt.format_prompt(
+            resume=parsed_text,
+        ).to_messages()
+    )
+    try:
+        answer = json.loads(response.content)
+        return answer
+    except Exception as e:
+        print("- - - Response from OpenAI wasn't in the expected format, retrying...")
+        print(response.content)
+        try_loading(parsed_text, chat, chat_prompt, attempts-1)
+        
+
 def extract_data_new(parsed_text):
     num_input_tokens = num_tokens_from_string(parsed_text, encoding)
 
@@ -72,12 +88,6 @@ def extract_data_new(parsed_text):
         )
 
     # get a chat completion from the formatted messages
-    response = chat(
-            chat_prompt.format_prompt(
-                resume=parsed_text,
-            ).to_messages()
-        )
-
-    answer = json.loads(response.content)
+    answer = try_loading(parsed_text, chat, chat_prompt, 3)
 
     return answer
